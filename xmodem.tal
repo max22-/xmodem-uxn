@@ -1,0 +1,14 @@
+|a0 @File0      &vector $2 &success  $2 &stat   $2 &delete $1 &append $1 &name    $2 &length  $2 &read   $2 &write $2
+
+|0100
+
+	;file .File0/name DEO2
+	;data-end ;data SUB2 .File0/length DEO2
+	;data .File0/write DEO2
+	.File0/success DEI2 #01 #0e DEO POP2
+
+BRK
+
+@file "hello.txt 00
+@data "Hello 20 "World! 0a 00
+@data-end
