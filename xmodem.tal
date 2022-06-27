@@ -53,6 +53,7 @@
 	#06 .Screen/auto DEO
 
 	;file .File0/name DEO2
+	#01 .File0/delete DEO
 	#01 .File0/append DEO
 	#0080 .File0/length DEO2
 	
@@ -97,28 +98,26 @@ BRK
 	
 	
 	@s2 ( Wait for block number )
-	    #02 DBG-S
-	    CHECK-TIMEOUT
-	    POP
-	    ( TODO : accept block numbers that have not been incremented because of packet loss )
-	    .block-number LDZ INC EQU ,&no-error JCN
-	    #01 .error-flag STZ
-	    #03 NEXT-STATE
-	    &no-error
-	    #03 NEXT-STATE
+		#02 DBG-S
+	    	CHECK-TIMEOUT
+		POP
+		( TODO : accept block numbers that have not been incremented because of packet loss )
+	    	.block-number LDZ INC EQU ,&no-error JCN
+	    	#01 .error-flag STZ
+	    	#03 NEXT-STATE
+	    	&no-error
+	    	#03 NEXT-STATE
 
-
-	
 
 	@s3 ( Wait for 1's complement of the block number )
-	    #03 DBG-S
-	    CHECK-TIMEOUT
-	    POP
-	    .block-number LDZ INC ADD #ff EQU ,&no-error JCN 
-	    ;msg/oc-error PRINT SPACE
-	    #01 .error-flag STZ
-	    &no-error
-	    #04 NEXT-STATE
+	    	#03 DBG-S
+	    	CHECK-TIMEOUT
+	    	POP
+	    	.block-number LDZ INC ADD #ff EQU ,&no-error JCN 
+	    	;msg/oc-error PRINT SPACE
+	    	#01 .error-flag STZ
+	    	&no-error
+	    	#04 NEXT-STATE
 
 	
 	@s4 ( Receive 128 bytes of data )
