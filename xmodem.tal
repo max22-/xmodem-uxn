@@ -4,7 +4,6 @@
 %PRINT { #01 ;draw-str JSR2 }
 
 %SOH { #01 }
-%PAD { #26 }
 %EOT { #04 }
 
 %NAK { #1518 DEO }
