@@ -1,12 +1,12 @@
 # XMODEM for Uxn virtual machine
-This rom receives a file on [Uxn](https://wiki.xxiivv.com/site/uxn.html)'s console device, using the [XMODEM](https://en.wikipedia.org/wiki/XMODEM) . It writes it to "output.rom". It shouldn't be difficult to modify it to write directly into ram, and execute a received rom.
+This rom receives a file on [Uxn](https://wiki.xxiivv.com/site/uxn.html)'s console device, using the [XMODEM](https://en.wikipedia.org/wiki/XMODEM) protocol. It writes it to "output.rom". It shouldn't be difficult to modify it to write directly into ram, and execute a received rom.
 
 # What for ?
 To be able to send a rom to a microcontroller that runs uxn, via the serial port, for example.
 
 # How to test it
 
-If you are on linux, you can use socat (to create a virtual serial port), and [lrzsz](https://ohse.de/uwe/software/lrzsz.html), and the Makefile included in this repo.
+If you are on linux, you can use socat (to create a virtual serial port), [lrzsz](https://ohse.de/uwe/software/lrzsz.html), and the Makefile included in this repo.
 
 ```
 sudo apt install socat lrzsz
