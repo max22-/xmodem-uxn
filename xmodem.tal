@@ -1,14 +1,384 @@
+%RTN { JMP2r }
+%SPACE { #2001 ;draw-char JSR2 }
+%NL { ;newline JSR2 }
+%PRINT { #01 ;draw-str JSR2 }
+
+%SOH { #01 }
+%PAD { #26 }
+%EOT { #04 }
+
+%NAK { #1518 DEO }
+%ACK { #0618 DEO }
+
+( State machine events )
+%START { #00 }
+%BYTE { #01 }
+%TIMEOUT { #02 }
+
+%DUMMY-DATA { #00 }
+
+%SET-TIMEOUT { .timeout STZ #01 .timeout-enabled STZ }
+%NEXT-STATE { .next STZ ;do-next JMP2 }
+%CHECK-TIMEOUT { DUP TIMEOUT NEQ ,&not-timeout JCN POP2 ;msg/timeout PRINT SPACE #01 NEXT-STATE &not-timeout }
+
+( Debugging macros )
+%DBG-S { LIT 'S #01 ;draw-char JSR2 LIT '0 ADD #01 ;draw-char JSR2 SPACE }
+%DBG-N { LIT '- #01 ;draw-char JSR2 LIT '> #01 ;draw-char JSR2 #20 #01 ;draw-char JSR2 LIT 'S #01 ;draw-char JSR2 LIT '0 ADD #01 ;draw-char JSR2 SPACE }
+
+
+|00 @System     &vector $2 &wst      $1 &rst    $1 &eaddr  $2 &ecode  $1 &pad     $1 &r       $2 &g      $2 &b     $2 &debug  $1 &halt $1
+|10 @Console    &vector $2 &read     $1 &pad    $5 &write  $1 &error  $1
+|20 @Screen     &vector $2 &width    $2 &height $2 &auto   $1 &pad    $1 &x       $2 &y       $2 &addr   $2 &pixel $1 &sprite $1
 |a0 @File0      &vector $2 &success  $2 &stat   $2 &delete $1 &append $1 &name    $2 &length  $2 &read   $2 &write $2
+
+|00
+@state $1
+@next $1 ( next state )
+@block-number $1
+@checksum $1
+@counter $1
+@timeout $1
+@timeout-enabled $1
+@error-flag $1
+@bptr $1
+@buffer $128
+
 
 |0100
 
+	( For debugging )
+	#f07f .System/r DEO2
+	#f0e0 .System/g DEO2
+	#f0c0 .System/b DEO2
+	( ************* )
+	#06 .Screen/auto DEO
+
 	;file .File0/name DEO2
-	;data-end ;data SUB2 .File0/length DEO2
-	;data .File0/write DEO2
-	.File0/success DEI2 #01 #0e DEO POP2
+	#01 .File0/append DEO
+	#0080 .File0/length DEO2
+	
+
+	;clk .Screen/vector DEO2
+	;on-console .Console/vector DEO2
+	DUMMY-DATA START ;state-machine JSR2
+
 
 BRK
 
-@file "hello.txt 00
-@data "Hello 20 "World! 0a 00
-@data-end
+@state-machine ( data event -- )
+	.state LDZ #00 EQU ;s0 JCN2
+	.state LDZ #01 EQU ;s1 JCN2
+	.state LDZ #02 EQU ;s2 JCN2
+	.state LDZ #03 EQU ;s3 JCN2
+	.state LDZ #04 EQU ;s4 JCN2
+	.state LDZ #05 EQU ;s5 JCN2
+	.state LDZ #06 EQU ;s6 JCN2
+	#01 .System/halt DEO ( unknown state -> halt )
+	
+	@s0
+		#00 DBG-S
+		NIP ( we get rid of dummy data byte )
+		START NEQ ,&error JCN ( event == START ? )
+		#01 NEXT-STATE
+		&error
+		#01 .System/halt DEO
+
+	@s1
+		#01 DBG-S
+		CHECK-TIMEOUT
+		POP
+		DUP SOH NEQ ,&not-soh JCN POP
+		#02 NEXT-STATE
+		&not-soh
+		EOT NEQ ,&not-eot JCN
+		#06 NEXT-STATE
+		&not-eot
+		( #01 .error-flag STZ )
+		#01 NEXT-STATE
+	
+	
+	@s2 ( Wait for block number )
+	    #02 DBG-S
+	    CHECK-TIMEOUT
+	    POP
+	    ( TODO : accept block numbers that have not been incremented because of packet loss )
+	    .block-number LDZ INC EQU ,&no-error JCN
+	    #01 .error-flag STZ
+	    #03 NEXT-STATE
+	    &no-error
+	    #03 NEXT-STATE
+
+
+	
+
+	@s3 ( Wait for 1's complement of the block number )
+	    #03 DBG-S
+	    CHECK-TIMEOUT
+	    POP
+	    .block-number LDZ INC ADD #ff EQU ,&no-error JCN 
+	    ;msg/oc-error PRINT SPACE
+	    #01 .error-flag STZ
+	    &no-error
+	    #04 NEXT-STATE
+
+	
+	@s4 ( Receive 128 bytes of data )
+		( #04 DBG-S )
+		CHECK-TIMEOUT
+		POP
+		DUP .buffer .bptr LDZ ADD STZ
+		.checksum LDZ ADD .checksum STZ
+		.bptr LDZk INC SWP STZk POP
+		#80 EQU ,&data-end JCN
+		#04 NEXT-STATE
+		&data-end
+		#05 NEXT-STATE
+
+
+	@s5 ( Receive checksum )
+		#05 DBG-S
+		CHECK-TIMEOUT
+		POP
+		.checksum LDZ EQU ,&no-checksum-error JCN
+		;msg/checksum-error PRINT SPACE
+		#01 .error-flag STZ
+		&no-checksum-error
+		.error-flag LDZ ,&error JCN
+		;msg/ack PRINT SPACE
+		.block-number LDZ INC .block-number STZ
+		;buffer .File0/write DEO2
+		ACK
+		#01 NEXT-STATE
+		&error
+		;msg/nak PRINT SPACE
+		NAK
+		#01 NEXT-STATE
+		
+	@s6
+		#06 DBG-S
+		POP2
+		RTN
+
+	@do-next
+	.next LDZ #00 EQU ;&n0 JCN2
+	.next LDZ #01 EQU ;&n1 JCN2
+	.next LDZ #02 EQU ;&n2 JCN2
+	.next LDZ #03 EQU ;&n3 JCN2
+	.next LDZ #04 EQU ;&n4 JCN2
+	.next LDZ #05 EQU ;&n5 JCN2
+	.next LDZ #06 EQU ;&n6 JCN2
+	#01 .System/halt DEO ( unknown state -> halt )
+
+	&n0
+		#00 DBG-N NL
+		;&end JMP2
+	&n1
+		#01 DBG-N NL
+		#00 .error-flag STZ
+		#00 .checksum STZ
+		#00 .bptr STZ
+		.state LDZ #05 EQU ,&skip-nak JCN
+		NAK
+		&skip-nak
+		#0a SET-TIMEOUT
+		;&end JMP2
+	&n2
+		#02 DBG-N NL
+		#07 SET-TIMEOUT
+		;&end JMP2
+	&n3
+		#03 DBG-N NL
+		#07 SET-TIMEOUT
+		;&end JMP2
+	&n4
+		( #04 DBG-N NL )
+		#07 SET-TIMEOUT
+		;&end JMP2
+	&n5
+		#05 DBG-N NL
+		#07 SET-TIMEOUT
+		;&end JMP2
+	&n6
+		#06 DBG-N NL
+		ACK
+		;msg/transfer-complete PRINT NL
+		#00 .timeout-enabled STZ
+	
+	&end
+	.next LDZ .state STZ
+RTN
+
+
+@on-console ( -- )
+	.Console/read DEI BYTE ;state-machine JSR2
+BRK
+
+( callback run every second )
+@second ( -- )
+	.timeout-enabled LDZ #01 NEQ ,&end JCN
+	.timeout LDZk #01 SUB OVR STZk POP NIP
+	#00 NEQ ,&end JCN ( timeout == 0 ? )
+	#00 .timeout-enabled STZ
+	DUMMY-DATA TIMEOUT ;state-machine JSR2
+	&end
+RTN
+
+( screen vector, only used to measure time )
+@clk ( -- )
+	.counter LDZk INC OVR STZk POP
+	#3c NEQ ,&end JCN ( 60 frames ? )
+	#00 SWP STZ ( reset counter )
+	;second JSR2
+	#00 ( dummy value to have 1 item to pop )
+	&end
+	POP ( get rid of .counter )
+BRK
+
+@file "output.rom 00
+
+( For debugging )
+
+@msg
+	&timeout "Timeout 00
+	&oc-error "One's 20 "complement 20 "error 00
+	&checksum-error "Checksum 20 "error 00
+	&ack "ACK 00
+	&nak "NAK 00
+	&transfer-complete "Transfer 20 "complete 00
+
+@clear-line ( -- )
+	  .Screen/width DEI2 #03 SFT2 NIP #00
+	  &loop
+		#20 #01 ;draw-char JSR2
+		INC GTHk ,&loop JCN
+	  POP2
+	  #0000 .Screen/x DEO2
+RTN
+
+@newline ( -- )
+	 #0000 .Screen/x DEO2
+	 .Screen/y DEI2 #0010 ADD2 .Screen/y DEO2
+	 ,clear-line JSR
+RTN
+
+
+@draw-str ( str* color -- )
+	  .Screen/y DEI2 .Screen/height DEI2 LTH2 ,&no-home JCN
+	  #0000 .Screen/y DEO2
+	  &no-home
+
+	  #06 .Screen/auto DEO
+	  STH
+	  &while
+		LDAk STHkr ,draw-char JSR
+		INC2 LDAk ,&while JCN
+	POP2
+	POPr
+
+RTN
+
+@draw-char ( char color -- )
+
+	SWP
+	[ #20 SUB #00 SWP #40 SFT2 ;font ADD2 ] .Screen/addr DEO2
+	.Screen/sprite DEOk DEO
+	.Screen/y DEI2 #0010 SUB2 .Screen/y DEO2
+	.Screen/x DEI2 #0008 ADD2 .Screen/x DEO2
+
+RTN
+
+@font ( terminus01x02 )
+	0000 0000 0000 0000 0000 0000 0000 0000
+	0000 183c 3c3c 1818 1800 1818 0000 0000
+	0066 6666 2400 0000 0000 0000 0000 0000
+	0000 006c 6cfe 6c6c 6cfe 6c6c 0000 0000
+	1818 7cc6 c2c0 7c06 0686 c67c 1818 0000
+	0000 0000 c2c6 0c18 3060 c686 0000 0000
+	0000 386c 6c38 76dc cccc cc76 0000 0000
+	0030 3030 6000 0000 0000 0000 0000 0000
+	0000 0c18 3030 3030 3030 180c 0000 0000
+	0000 3018 0c0c 0c0c 0c0c 1830 0000 0000
+	0000 0000 0066 3cff 3c66 0000 0000 0000
+	0000 0000 0018 187e 1818 0000 0000 0000
+	0000 0000 0000 0000 0018 1818 3000 0000
+	0000 0000 0000 00fe 0000 0000 0000 0000
+	0000 0000 0000 0000 0000 1818 0000 0000
+	0000 0000 0206 0c18 3060 c080 0000 0000
+	0000 386c c6c6 d6d6 c6c6 6c38 0000 0000
+	0000 1838 7818 1818 1818 187e 0000 0000
+	0000 7cc6 060c 1830 60c0 c6fe 0000 0000
+	0000 7cc6 0606 3c06 0606 c67c 0000 0000
+	0000 0c1c 3c6c ccfe 0c0c 0c1e 0000 0000
+	0000 fec0 c0c0 fc06 0606 c67c 0000 0000
+	0000 3860 c0c0 fcc6 c6c6 c67c 0000 0000
+	0000 fec6 0606 0c18 3030 3030 0000 0000
+	0000 7cc6 c6c6 7cc6 c6c6 c67c 0000 0000
+	0000 7cc6 c6c6 7e06 0606 0c78 0000 0000
+	0000 0000 1818 0000 0018 1800 0000 0000
+	0000 0000 1818 0000 0018 1830 0000 0000
+	0000 0006 0c18 3060 3018 0c06 0000 0000
+	0000 0000 007e 0000 7e00 0000 0000 0000
+	0000 0060 3018 0c06 0c18 3060 0000 0000
+	0000 7cc6 c60c 1818 1800 1818 0000 0000
+	0000 007c c6c6 dede dedc c07c 0000 0000
+	0000 1038 6cc6 c6fe c6c6 c6c6 0000 0000
+	0000 fc66 6666 7c66 6666 66fc 0000 0000
+	0000 3c66 c2c0 c0c0 c0c2 663c 0000 0000
+	0000 f86c 6666 6666 6666 6cf8 0000 0000
+	0000 fe66 6268 7868 6062 66fe 0000 0000
+	0000 fe66 6268 7868 6060 60f0 0000 0000
+	0000 3c66 c2c0 c0de c6c6 663a 0000 0000
+	0000 c6c6 c6c6 fec6 c6c6 c6c6 0000 0000
+	0000 3c18 1818 1818 1818 183c 0000 0000
+	0000 1e0c 0c0c 0c0c cccc cc78 0000 0000
+	0000 e666 666c 7878 6c66 66e6 0000 0000
+	0000 f060 6060 6060 6062 66fe 0000 0000
+	0000 c6ee fefe d6c6 c6c6 c6c6 0000 0000
+	0000 c6e6 f6fe dece c6c6 c6c6 0000 0000
+	0000 7cc6 c6c6 c6c6 c6c6 c67c 0000 0000
+	0000 fc66 6666 7c60 6060 60f0 0000 0000
+	0000 7cc6 c6c6 c6c6 c6d6 de7c 0c0e 0000
+	0000 fc66 6666 7c6c 6666 66e6 0000 0000
+	0000 7cc6 c660 380c 06c6 c67c 0000 0000
+	0000 7e7e 5a18 1818 1818 183c 0000 0000
+	0000 c6c6 c6c6 c6c6 c6c6 c67c 0000 0000
+	0000 c6c6 c6c6 c6c6 c66c 3810 0000 0000
+	0000 c6c6 c6c6 d6d6 d6fe ee6c 0000 0000
+	0000 c6c6 6c7c 3838 7c6c c6c6 0000 0000
+	0000 6666 6666 3c18 1818 183c 0000 0000
+	0000 fec6 860c 1830 60c2 c6fe 0000 0000
+	0000 3c30 3030 3030 3030 303c 0000 0000
+	0000 0080 c0e0 7038 1c0e 0602 0000 0000
+	0000 3c0c 0c0c 0c0c 0c0c 0c3c 0000 0000
+	1038 6cc6 0000 0000 0000 0000 0000 0000
+	0000 0000 0000 0000 0000 0000 00ff 0000
+	3030 1800 0000 0000 0000 0000 0000 0000
+	0000 0000 0078 0c7c cccc cc76 0000 0000
+	0000 e060 6078 6c66 6666 667c 0000 0000
+	0000 0000 007c c6c0 c0c0 c67c 0000 0000
+	0000 1c0c 0c3c 6ccc cccc cc76 0000 0000
+	0000 0000 007c c6fe c0c0 c67c 0000 0000
+	0000 386c 6460 f060 6060 60f0 0000 0000
+	0000 0000 0076 cccc cccc cc7c 0ccc 7800
+	0000 e060 606c 7666 6666 66e6 0000 0000
+	0000 1818 0038 1818 1818 183c 0000 0000
+	0000 0606 000e 0606 0606 0606 6666 3c00
+	0000 e060 6066 6c78 786c 66e6 0000 0000
+	0000 3818 1818 1818 1818 183c 0000 0000
+	0000 0000 00ec fed6 d6d6 d6c6 0000 0000
+	0000 0000 00dc 6666 6666 6666 0000 0000
+	0000 0000 007c c6c6 c6c6 c67c 0000 0000
+	0000 0000 00dc 6666 6666 667c 6060 f000
+	0000 0000 0076 cccc cccc cc7c 0c0c 1e00
+	0000 0000 00dc 7666 6060 60f0 0000 0000
+	0000 0000 007c c660 380c c67c 0000 0000
+	0000 1030 30fc 3030 3030 361c 0000 0000
+	0000 0000 00cc cccc cccc cc76 0000 0000
+	0000 0000 0066 6666 6666 3c18 0000 0000
+	0000 0000 00c6 c6d6 d6d6 fe6c 0000 0000
+	0000 0000 00c6 6c38 3838 6cc6 0000 0000
+	0000 0000 00c6 c6c6 c6c6 c67e 060c f800
+	0000 0000 00fe cc18 3060 c6fe 0000 0000
+	0000 0e18 1818 7018 1818 180e 0000 0000
+	0000 1818 1818 0018 1818 1818 0000 0000
+	0000 7018 1818 0e18 1818 1870 0000 0000
